@@ -730,19 +730,25 @@ class LocalConnection(connection.Connection):
   ) -> None:
     """Handles question requests from the harness."""
     questions_list = []
-    for uq in step_update.questions_request.questions:
+    indices_to_hook = []
+    for i, uq in enumerate(step_update.questions_request.questions):
       if uq.HasField("multiple_choice"):
         mc = uq.multiple_choice
         opts = [
-            types.AskQuestionOption(id=str(i + 1), text=choice)
-            for i, choice in enumerate(mc.choices)
+            types.AskQuestionOption(id=str(j + 1), text=choice)
+            for j, choice in enumerate(mc.choices)
         ]
         questions_list.append(
             types.AskQuestionEntry(question=mc.question, options=opts)
         )
+        indices_to_hook.append(i)
 
-    answers = []
-    if self._hook_runner:
+    answers = [
+        localharness_pb2.UserQuestionAnswer(unanswered=True)
+        for _ in step_update.questions_request.questions
+    ]
+
+    if self._hook_runner and questions_list:
       ctx = self._current_turn_context or hooks.TurnContext(
           self._hook_runner.session_context
       )
@@ -752,32 +758,34 @@ class LocalConnection(connection.Connection):
               questions=questions_list
           ),
       )
-      for r in question_res.responses:
-        ans = localharness_pb2.UserQuestionAnswer()
-        if r.skipped:
-          ans.unanswered = True
-        else:
-          mc_ans = localharness_pb2.MultipleChoiceAnswer()
-          if r.selected_option_ids:
-            indices = []
-            for opt_id in r.selected_option_ids:
-              try:
-                indices.append(int(opt_id) - 1)
-              except ValueError:
-                pass
-            mc_ans.selected_choice_indices[:] = indices
-          if r.freeform_response:
-            mc_ans.freeform_response = r.freeform_response
-          ans.multiple_choice_answer.CopyFrom(mc_ans)
-        answers.append(ans)
-    else:
+      if question_res:
+        for orig_idx, r in zip(indices_to_hook, question_res.responses):
+          ans = localharness_pb2.UserQuestionAnswer()
+          if r.skipped:
+            ans.unanswered = True
+          else:
+            mc_ans = localharness_pb2.MultipleChoiceAnswer()
+            if r.selected_option_ids:
+              indices = []
+              for opt_id in r.selected_option_ids:
+                try:
+                  indices.append(int(opt_id) - 1)
+                except ValueError:
+                  pass
+              mc_ans.selected_choice_indices[:] = indices
+            if r.freeform_response:
+              mc_ans.freeform_response = r.freeform_response
+            ans.multiple_choice_answer.CopyFrom(mc_ans)
+          answers[orig_idx] = ans
+    elif not questions_list and step_update.questions_request.questions:
+      logging.warning(
+          "Received question_request with questions but none were"
+          " multiple_choice. Skipping all."
+      )
+    elif not self._hook_runner:
       logging.warning(
           "Received question_request but no HookRunner is configured. Skipping."
       )
-      answers = [
-          localharness_pb2.UserQuestionAnswer(unanswered=True)
-          for _ in questions_list
-      ]
 
     resp = localharness_pb2.UserQuestionsResponse(
         trajectory_id=step_update.trajectory_id,

@@ -450,6 +450,87 @@ class LocalConnectionTest(unittest.IsolatedAsyncioTestCase):
     self.assertIn("questionResponse", sent_data)
     self.assertEqual(sent_data["questionResponse"]["trajectoryId"], "test_traj")
 
+  async def test_question_hook_integration_unhandled_question(self):
+    hr = hook_runner.HookRunner()
+
+    @hooks_base.on_interaction
+    async def auto_answer(data):
+      return hooks_base.QuestionHookResult(
+          responses=[
+              QuestionResponse(selected_option_ids=["1"]),
+          ]
+      )
+
+    hr.register_hook(auto_answer)
+
+    harness = test_utils.TestLocalHarness(
+        test_case=self,
+        process=self.mock_process,
+        tool_runner=self.tool_runner,
+        hook_runner=hr,
+    )
+
+    event = localharness_pb2.OutputEvent(
+        step_update=localharness_pb2.StepUpdate(
+            step_index=1,
+            trajectory_id="test_traj",
+            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
+            questions_request=localharness_pb2.UserQuestionsRequest(
+                questions=[
+                    localharness_pb2.UserQuestion(
+                        multiple_choice=localharness_pb2.MultipleChoice(
+                            question="Do you agree?",
+                            choices=["Yes", "No"],
+                        )
+                    ),
+                    localharness_pb2.UserQuestion(),  # Unhandled question type (empty)
+                ]
+            ),
+        )
+    )
+
+    await harness.send_event(event)
+
+    sent_data = await harness.wait_for_response()
+    self.assertIn("questionResponse", sent_data)
+    self.assertEqual(sent_data["questionResponse"]["trajectoryId"], "test_traj")
+
+    resp = sent_data["questionResponse"]["response"]
+    self.assertIn("answers", resp)
+    self.assertEqual(len(resp["answers"]), 2)
+
+    # First answer should be from hook (selected option 1)
+    self.assertIn("multipleChoiceAnswer", resp["answers"][0])
+    self.assertEqual(
+        resp["answers"][0]["multipleChoiceAnswer"]["selectedChoiceIndices"], [0]
+    )
+
+    # Second answer should be unanswered
+    self.assertTrue(resp["answers"][1].get("unanswered"))
+
+  async def test_question_hook_integration_empty_questions(self):
+    harness = self._make_harness()
+
+    event = localharness_pb2.OutputEvent(
+        step_update=localharness_pb2.StepUpdate(
+            step_index=1,
+            trajectory_id="test_traj",
+            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
+            questions_request=localharness_pb2.UserQuestionsRequest(
+                questions=[]
+            ),
+        )
+    )
+
+    await harness.send_event(event)
+
+    sent_data = await harness.wait_for_response()
+    self.assertIn("questionResponse", sent_data)
+    self.assertEqual(sent_data["questionResponse"]["trajectoryId"], "test_traj")
+
+    resp = sent_data["questionResponse"]["response"]
+    self.assertEqual(resp, {})
+
   async def test_deduplication_of_wait_requests(self):
     """Verifies that multiple updates for the same wait state don't duplicate."""
     hr = hook_runner.HookRunner()
