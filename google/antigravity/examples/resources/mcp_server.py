@@ -14,19 +14,10 @@
 
 """MCP server for pirate math."""
 
+import argparse
+import sys
 from typing import Literal, Sequence
-
-from absl import app
-from absl import flags
 from mcp.server.fastmcp import server
-
-_PORT = flags.DEFINE_integer("port", 8000, "Port to listen on.")
-_TRANSPORT = flags.DEFINE_enum(
-    "transport",
-    "streamable-http",
-    ["stdio", "sse", "streamable-http"],
-    "Transport to use (stdio, sse, streamable-http).",
-)
 
 Transport = Literal["stdio", "sse", "streamable-http"]
 
@@ -75,15 +66,21 @@ def _create_server(port: int) -> server.FastMCP:
 
 
 def main(argv: Sequence[str]) -> None:
-  del argv
-  mcp = _create_server(_PORT.value)
-  transport: Transport = _TRANSPORT.value  # type: ignore
-  mcp.run(
-      transport=transport,
+  parser = argparse.ArgumentParser(description="MCP server for pirate math.")
+  parser.add_argument(
+      "--port", type=int, default=8000, help="Port to listen on."
   )
+  parser.add_argument(
+      "--transport",
+      choices=["stdio", "sse", "streamable-http"],
+      default="streamable-http",
+      help="Transport to use (stdio, sse, streamable-http).",
+  )
+  args = parser.parse_args(argv[1:])
+
+  mcp = _create_server(args.port)
+  mcp.run(transport=args.transport)
 
 
 if __name__ == "__main__":
-  # Footgun: It's important to set change_root_and_user=False, because
-  # we're running outside of a google environment in general.
-  app.run(main, change_root_and_user=False)
+  main(sys.argv)
