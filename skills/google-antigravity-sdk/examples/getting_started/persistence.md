@@ -35,3 +35,8 @@ async with Agent(config2) as agent:
     response = await agent.chat("What is my favorite color?")
     print(await response.text())
 ```
+
+> [!TIP] While `save_dir` persists the conversation trajectory history, you can
+> use `app_data_dir` to control where generated artifacts (like `task.md`),
+> scratch files, and media are written. See
+> [app_data_dir_override.md](app_data_dir_override.md) for an example.

@@ -81,6 +81,9 @@ relevant information.
 -   If the user needs to implement persistent agents that remember past
     interactions across sessions, read
     `examples/getting_started/persistence.md`.
+-   If the user needs to override the default application data directory
+    for agent artifacts, scratch files, and media storage, read
+    `examples/getting_started/app_data_dir_override.md`.
 -   If the user needs an agent to output structured data (e.g., JSON matching a
     Pydantic schema) for reliable integration, read
     `examples/getting_started/structured_output.md`.

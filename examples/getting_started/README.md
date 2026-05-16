@@ -69,3 +69,4 @@ Controlling execution flow, reacting to background events, auditing performance,
 * [observability.py](observability.py): Auditing execution, tracking token costs (including thinking tokens), and configuring logging.
 * [error_handler.py](error_handler.py): Gracefully recovering from tool execution failures via `@hooks.on_tool_error`.
 * [persistence.py](persistence.py): Saving and resuming stateful conversation sessions across restarts using `conversation_id` and `save_dir`.
+* [app_data_dir_override.py](app_data_dir_override.py): Overriding the default application data directory for agent artifacts, scratch files, and media storage using `app_data_dir`.

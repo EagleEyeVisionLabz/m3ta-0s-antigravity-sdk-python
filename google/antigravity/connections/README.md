@@ -84,6 +84,7 @@ a Go-based local harness.
       `HookRunner` (interaction hooks).
     - Dispatches session start/end and turn hooks.
     - Supports loading skills from specified paths via `skills_paths`.
+    - Supports overriding the application data directory for generated artifacts and media via `app_data_dir`.
 
 ## Usage Example
 

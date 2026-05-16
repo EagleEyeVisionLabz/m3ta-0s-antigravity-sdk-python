@@ -1,5 +1,6 @@
 <!-- disableFinding(LINK_RELATIVE_G3DOC) -->
 <!-- disableFinding(LINE_OVER_80) -->
+
 # Advanced Agent Configuration Guide
 
 This guide provides instructions on how to perform advanced configuration for
@@ -44,6 +45,26 @@ async with Agent(config=config) as agent:
     # Use the agent
     pass
 ```
+
+### Application Data Directory Override (Artifact & Scratch Storage)
+
+By default, the agent stores generated artifacts (like `task.md`), scratch
+files, and uploaded media under `~/.gemini/antigravity/brain/`. You can override
+this location by specifying an absolute path in `app_data_dir`:
+
+```python
+from google.antigravity import Agent, LocalAgentConfig
+
+config = LocalAgentConfig(
+    app_data_dir="/absolute/path/to/custom/storage",
+)
+async with Agent(config=config) as agent:
+    # Generated files and artifacts will be written inside the custom directory
+    pass
+```
+
+> [!IMPORTANT] **The path must be an absolute path.** Passing relative paths or
+> unexpanded tildes (`~/`) will trigger a validation error.
 
 ### System Instructions and Personas
 
