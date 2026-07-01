@@ -20,6 +20,7 @@ from typing import Any, Callable, Coroutine
 
 from google.antigravity import types
 from google.antigravity.connections.local import localharness_pb2
+from google.antigravity.connections.local.local_connection_config import normalize_wire_path
 from google.antigravity.connections.local.local_connection_config import PROTO_FIELD_TO_SDK_NAME
 from google.antigravity.hooks import hook_runner as hook_runner_lib
 from google.antigravity.hooks import hooks
@@ -56,6 +57,26 @@ def _from_proto_user_input(ui: localharness_pb2.UserInput) -> types.Content:
   if len(content_list) == 1:
     return content_list[0]
   return content_list
+
+
+# Path argument keys that carry wire-format URIs (file:///..., cns://...)
+# and must be normalized to clean absolute paths before reaching user hooks.
+# Mirrors the keys in local_connection.py's from_dict /
+# _handle_tool_confirmation_request.
+_PATH_FIELDS = frozenset({"path", "file_path", "directory_path"})
+
+
+def _normalize_path_args(args: dict[str, Any]) -> None:
+  """Converts wire-format URIs to clean filesystem paths in-place.
+
+  Paths arrive as file:/// or cns:// URIs over the wire protocol.
+  User hooks expect clean absolute paths (e.g. /home/user/file.py),
+  so we normalize known path fields before dispatch.
+  """
+  for key in _PATH_FIELDS:
+    val = args.get(key)
+    if isinstance(val, str) and val:
+      args[key] = normalize_wire_path(val)
 
 
 class HookRouter:
@@ -96,6 +117,7 @@ class HookRouter:
         localharness_pb2.LIFECYCLE_HOOK_ON_TOOL_ERROR: (
             self._handle_on_tool_error
         ),
+        localharness_pb2.LIFECYCLE_HOOK_PRE_TOOL: self._handle_pre_tool,
     }
 
   @property
@@ -153,6 +175,56 @@ class HookRouter:
     await self._hook_runner.dispatch_post_turn(turn_ctx, response_text)
     self._current_turn_context = None
     resp.empty_result.CopyFrom(localharness_pb2.EmptyResult())
+
+  async def _handle_pre_tool(
+      self,
+      req: localharness_pb2.CallHookRequest,
+      resp: localharness_pb2.CallHookResponse,
+  ) -> None:
+    """Handles PreTool decide hooks dispatched by the Go harness."""
+    tool_name = ""
+    args: dict[str, Any] = {}
+    server_name: str | None = None
+    if req.HasField("pre_tool_args"):
+      pta = req.pre_tool_args
+      tool_name = PROTO_FIELD_TO_SDK_NAME.get(pta.tool_name, pta.tool_name)
+      if pta.arguments_json:
+        args = json.loads(pta.arguments_json)
+      # server_name is populated directly by harness for MCP tool calls,
+      # enabling SDK policies to match by server/tool target.
+      if pta.server_name:
+        server_name = pta.server_name
+      _normalize_path_args(args)
+
+    # Derive canonical_path from the first normalized path field so that
+    # workspace_only() policies can enforce path restrictions.
+    canonical_path: str | None = None
+    for key in _PATH_FIELDS:
+      val = args.get(key)
+      if isinstance(val, str) and val:
+        canonical_path = val
+        break
+
+    tc = types.ToolCall(
+        name=tool_name,
+        args=args,
+        server_name=server_name,
+        canonical_path=canonical_path,
+    )
+    turn_ctx = self._current_turn_context or hooks.TurnContext(
+        self._hook_runner.session_context
+    )
+    result, _, _ = await self._hook_runner.dispatch_pre_tool_call(
+        turn_context=turn_ctx, tool_call=tc
+    )
+
+    ptr = localharness_pb2.PreToolResult()
+    if result.allow:
+      ptr.decision = localharness_pb2.PreToolResult.Decision.ALLOW
+    else:
+      ptr.decision = localharness_pb2.PreToolResult.Decision.DENY
+      ptr.reason = result.message or ""
+    resp.pre_tool_result.CopyFrom(ptr)
 
   async def _handle_post_tool(
       self,

@@ -44,6 +44,7 @@ from google.antigravity.connections.local import localharness_pb2
 from google.antigravity.connections.local import types as local_types
 from google.antigravity.connections.local.hook_router import HookRouter
 from google.antigravity.connections.local.local_connection_config import BUILTIN_TOOL_PROTO_FIELDS
+from google.antigravity.connections.local.local_connection_config import normalize_wire_path
 from google.antigravity.hooks import hook_runner as h_runner
 from google.antigravity.hooks import hooks
 from google.antigravity.tools import tool_runner as t_runner
@@ -106,10 +107,6 @@ _TARGET_MAP = {
     "TARGET_UNSPECIFIED": types.StepTarget.UNSPECIFIED,
 }
 
-# Fallback action name used when a tool confirmation request does not match any
-# known BuiltinTools proto field. This represents a pre-request notification
-# from the Connection for a host-side tool whose specific call will follow.
-DEFAULT_HOST_TOOL_NAME = "pre_request_host_tool_request"
 
 # Constants for MCP tool confirmation mapping.
 _MCP_TOOL_PROTO_FIELD = "mcp_tool"
@@ -210,21 +207,6 @@ def _extract_tool_result(
 def _make_step_id(trajectory_id: str, step_index: int) -> str:
   """Creates a unique step identifier."""
   return f"{trajectory_id}:{step_index}" if trajectory_id else str(step_index)
-
-
-def normalize_wire_path(path: str) -> str:
-  """Translates Go harness transport representations to clean absolute filesystem paths."""
-  parsed = urllib.parse.urlparse(path)
-  if parsed.scheme == "file":
-    # urlparse("file:///abs/path").path == "/abs/path"
-    # url2pathname converts URL path to platform-native path
-    return urllib.request.url2pathname(parsed.path)
-  if parsed.scheme == "cns":
-    # urlparse("cns://el-d/home/user/...").netloc == "el-d"
-    # urlparse("cns://el-d/home/user/...").path == "/home/user/..."
-    # Convert to the canonical /cns/<cell>/... absolute path format.
-    return "/cns/" + parsed.netloc + parsed.path
-  return path
 
 
 class LocalConnectionStep(types.Step):
@@ -1122,73 +1104,12 @@ class LocalConnection(connection.Connection):
   async def _handle_tool_confirmation_request(
       self, step_update: localharness_pb2.StepUpdate
   ) -> None:
-    """Handles tool confirmation requests from the harness."""
-    try:
-      action_str = "unknown"
-      args = {}
-      found_action = False
+    """Handles tool confirmation requests from the harness.
 
-      for tool_enum, proto_field in BUILTIN_TOOL_PROTO_FIELDS.items():
-        if step_update.HasField(proto_field):
-          action_str = tool_enum.value
-          found_action = True
-          sub_msg = getattr(step_update, proto_field)
-          args = json_format.MessageToDict(
-              sub_msg, preserving_proto_field_name=True
-          )
-          break
-
-      server_name = None
-      if not found_action and step_update.HasField(_MCP_TOOL_PROTO_FIELD):
-        mcp_pb = getattr(step_update, _MCP_TOOL_PROTO_FIELD)
-        action_str = mcp_pb.tool_name
-        server_name = mcp_pb.server_name
-        found_action = True
-        args = json.loads(mcp_pb.arguments_json or "{}")
-
-      if not found_action:
-        action_str = DEFAULT_HOST_TOOL_NAME
-
-      if step_update.request_text:
-        args["request_text"] = step_update.request_text
-
-      canonical_path = None
-      # Sanitize all known file path argument fields in-place
-      for path_key in ("path", "file_path", "TargetFile", "directory_path"):
-        if path_key in args and isinstance(args[path_key], str):
-          normalized = normalize_wire_path(args[path_key])
-          args[path_key] = normalized
-          canonical_path = normalized
-
-      tc = types.ToolCall(
-          id=_make_step_id(step_update.trajectory_id, step_update.step_index),
-          name=action_str,
-          args=args,
-          canonical_path=canonical_path,
-          server_name=server_name,
-      )
-      allow = True
-      op_ctx = None
-      # Auto-approve pre-requests for host tools because the actual tool call
-      # will be sent next with its proper name and arguments, triggering its
-      # own confirmation.
-      if tc.name == DEFAULT_HOST_TOOL_NAME:
-        allow = True
-      elif self._hook_runner:
-        ctx = self._get_turn_context()
-        res, _, op_ctx = await self._hook_runner.dispatch_pre_tool_call(
-            turn_context=ctx, tool_call=tc
-        )
-        allow = res.allow
-
-      await self._send_tool_confirmation(step_update, allow)
-    except Exception:  # pylint: disable=broad-except
-      # The protocol requires a response to avoid deadlocking the harness.
-      # ToolConfirmation only has a bool field (no error/reason field), so
-      # rejecting is the only option. The harness transitions the step to
-      # STATE_ERROR, which the model does see.
-      logging.exception("_handle_tool_confirmation_request failed; rejecting")
-      await self._send_tool_confirmation(step_update, False)
+    Auto-accepts unconditionally. Pre-tool gating is handled by
+    FirePreToolHook -> CallHookRequest -> HookRouter._handle_pre_tool.
+    """
+    await self._send_tool_confirmation(step_update, accepted=True)
 
   async def _send_tool_confirmation(
       self, step_update: localharness_pb2.StepUpdate, accepted: bool
@@ -1225,25 +1146,6 @@ class LocalConnection(connection.Connection):
           tool_calls=[tc],
       )
       await self._step_queue.put(tool_call_step)
-      op_context = None
-
-      if self._hook_runner:
-        ctx = self._get_turn_context()
-        res, tc, op_context = await self._hook_runner.dispatch_pre_tool_call(
-            turn_context=ctx, tool_call=tc
-        )
-
-        if not res.allow:
-          reason = res.message or "No reason provided"
-          err_msg = f"Tool execution denied by hook policy: {reason}"
-          await self._send_tool_results([
-              types.ToolResult(
-                  id=tool_call.id,
-                  name=tool_call.name,
-                  error=err_msg,
-              ),
-          ])
-          return
 
       if self._tool_runner:
         try:

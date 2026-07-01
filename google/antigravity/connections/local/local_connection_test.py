@@ -512,39 +512,6 @@ class LocalConnectionTest(unittest.IsolatedAsyncioTestCase):
     await asyncio.sleep(0.05)
     self.assertEqual(captured, [""])
 
-  async def test_tool_hook_deny(self):
-    hr = hook_runner.HookRunner()
-
-    @hooks_base.pre_tool_call_decide
-    async def denying_tool(data):
-      return hooks_base.HookResult(allow=False, message="Denied tool")
-
-    hr.register_hook(denying_tool)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    event = localharness_pb2.OutputEvent(
-        tool_call=localharness_pb2.ToolCall(
-            id="call_1",
-            name="some_tool",
-            arguments_json="{}",
-        )
-    )
-
-    await harness.send_event(event)
-
-    # Verify that ToolResponse was sent back to harness denying it
-    sent_data = await harness.wait_for_response()
-    self.assertIn("toolResponse", sent_data)
-    resp = sent_data["toolResponse"]
-    self.assertEqual(resp["id"], "call_1")
-    self.assertIn("Denied tool", resp["errorMessage"])
-
   def test_extract_media_from_result(self):
     img = types.Image(data=b"\xff\xd8\xff\xd9", mime_type="image/jpeg")
 
@@ -636,232 +603,6 @@ class LocalConnectionTest(unittest.IsolatedAsyncioTestCase):
         b"\xff\xd8\xff\xd9",
     )
 
-  async def test_tool_confirmation_request_integration(self):
-    hr = hook_runner.HookRunner()
-
-    @hooks_base.pre_tool_call_decide
-    async def denying_tool(data):
-      return hooks_base.HookResult(allow=False)
-
-    hr.register_hook(denying_tool)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            view_file=localharness_pb2.ActionViewFile(file_path="/foo/bar"),
-        )
-    )
-
-    await harness.send_event(event)
-
-    sent_data = await harness.wait_for_response()
-    self.assertIn("toolConfirmation", sent_data)
-    self.assertEqual(sent_data["toolConfirmation"]["trajectoryId"], "test_traj")
-    self.assertFalse(sent_data["toolConfirmation"]["accepted"])
-
-  async def test_mcp_tool_confirmation_request_allowed(self):
-    hr = hook_runner.HookRunner()
-    captured_tool_calls = []
-
-    @hooks_base.pre_tool_call_decide
-    async def policy_hook(data: types.ToolCall) -> hooks_base.HookResult:
-      captured_tool_calls.append(data)
-      return hooks_base.HookResult(allow=True)
-
-    hr.register_hook(policy_hook)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    allowed_event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            mcp_tool=localharness_pb2.ActionMcpTool(
-                server_name="calc",
-                tool_name="math_add",
-                arguments_json='{"x": 10, "y": 20}',
-            ),
-        )
-    )
-    await harness.send_event(allowed_event)
-    sent_allowed = await harness.wait_for_response()
-    self.assertTrue(sent_allowed["toolConfirmation"]["accepted"])
-    self.assertEqual(len(captured_tool_calls), 1)
-    self.assertEqual(captured_tool_calls[0].name, "math_add")
-    self.assertEqual(captured_tool_calls[0].server_name, "calc")
-    self.assertEqual(captured_tool_calls[0].args, {"x": 10, "y": 20})
-
-  async def test_mcp_tool_confirmation_request_denied(self):
-    hr = hook_runner.HookRunner()
-    captured_tool_calls = []
-
-    @hooks_base.pre_tool_call_decide
-    async def policy_hook(data: types.ToolCall) -> hooks_base.HookResult:
-      captured_tool_calls.append(data)
-      return hooks_base.HookResult(allow=False)
-
-    hr.register_hook(policy_hook)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    denied_event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=2,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            mcp_tool=localharness_pb2.ActionMcpTool(
-                server_name="calc",
-                tool_name="math_multiply",
-                arguments_json='{"x": 5, "y": 4}',
-            ),
-        )
-    )
-    await harness.send_event(denied_event)
-    sent_denied = await harness.wait_for_response()
-    self.assertFalse(sent_denied["toolConfirmation"]["accepted"])
-    self.assertEqual(len(captured_tool_calls), 1)
-    self.assertEqual(captured_tool_calls[0].name, "math_multiply")
-    self.assertEqual(captured_tool_calls[0].server_name, "calc")
-
-  async def test_tool_confirmation_request_has_id(self):
-    hr = hook_runner.HookRunner()
-    hook_event = asyncio.Event()
-    captured_ids = []
-
-    @hooks_base.pre_tool_call_decide
-    async def hook(data):
-      captured_ids.append(data.id)
-      hook_event.set()
-      return hooks_base.HookResult(allow=True)
-
-    hr.register_hook(hook)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=5,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            view_file=localharness_pb2.ActionViewFile(file_path="/foo/bar"),
-        )
-    )
-
-    await harness.send_event(event)
-    await harness.wait_for_event(hook_event)
-
-    self.assertEqual(captured_ids, ["test_traj:5"])
-
-  async def test_tool_confirmation_uses_enum_value_for_view_file(self):
-    """Verifies that hooks receive the BuiltinTools enum value as the tool name.
-
-    Why: Hooks should see stable, semantic names (e.g. "view_file") rather
-    than raw proto field names. For view_file these happen to match, but the
-    test locks in the contract.
-    """
-    hook_event = asyncio.Event()
-    captured_tool_names = []
-
-    @hooks_base.pre_tool_call_decide
-    async def capturing_tool(data):
-      captured_tool_names.append(data.name)
-      hook_event.set()
-      return hooks_base.HookResult(allow=True)
-
-    hr = hook_runner.HookRunner()
-    hr.register_hook(capturing_tool)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            view_file=localharness_pb2.ActionViewFile(file_path="/foo/bar"),
-        )
-    )
-    await harness.send_event(event)
-    await harness.wait_for_event(hook_event)
-
-    self.assertEqual(captured_tool_names, [types.BuiltinTools.VIEW_FILE.value])
-
-  async def test_tool_confirmation_uses_enum_value_for_find_file(self):
-    """Verifies that a find_file step update is correctly recognized.
-
-    Why: find_file is a harness builtin tool that must be correctly identified
-    in _BUILTIN_TOOL_PROTO_FIELDS so hooks receive the right name.
-    """
-    hook_event = asyncio.Event()
-    captured_tool_names = []
-
-    @hooks_base.pre_tool_call_decide
-    async def capturing_tool(data):
-      captured_tool_names.append(data.name)
-      hook_event.set()
-      return hooks_base.HookResult(allow=True)
-
-    hr = hook_runner.HookRunner()
-    hr.register_hook(capturing_tool)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            find_file=localharness_pb2.ActionFindFile(
-                directory_path="file:///home/user",
-                query="*.py",
-            ),
-        )
-    )
-    await harness.send_event(event)
-    await harness.wait_for_event(hook_event)
-
-    self.assertEqual(captured_tool_names, [types.BuiltinTools.FIND_FILE.value])
 
   async def test_question_hook_integration(self):
     hr = hook_runner.HookRunner()
@@ -987,186 +728,6 @@ class LocalConnectionTest(unittest.IsolatedAsyncioTestCase):
 
     resp = sent_data["questionResponse"]["response"]
     self.assertEqual(resp, {})
-
-  async def test_deduplication_of_wait_requests(self):
-    """Verifies that multiple updates for the same wait state don't duplicate."""
-    hr = hook_runner.HookRunner()
-    hook_event = asyncio.Event()
-
-    call_count = [0]
-
-    @hooks_base.pre_tool_call_decide
-    async def counting_hook(data):
-      call_count[0] += 1
-      hook_event.set()
-      return hooks_base.HookResult(allow=True)
-
-    hr.register_hook(counting_hook)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            view_file=localharness_pb2.ActionViewFile(file_path="/foo/bar"),
-        )
-    )
-
-    # Send the exact same wait event three times (e.g. keepalives)
-    await harness.send_event(event)
-    await harness.send_event(event)
-    await harness.send_event(event)
-
-    # Wait for the response to ensure at least one event was processed
-    await harness.wait_for_response()
-
-    # Hook should only be called ONCE despite 3 events, thanks to _handled_waits
-    self.assertEqual(call_count[0], 1)
-    self.assertEqual(len(harness.ws.sent_messages), 1)
-
-  async def test_async_non_blocking_dispatch(self):
-    """Verifies that wait handlers run concurrently without blocking loop."""
-    hr = hook_runner.HookRunner()
-    started_event = asyncio.Event()
-    finish_event = asyncio.Event()
-
-    class BlockingHook(hooks_base.PreToolCallDecideHook):
-
-      def __init__(self):
-        self.started = False
-        self.finished = False
-
-      async def run(self, context, data):  # pylint: disable=unused-argument
-        del context, data
-        self.started = True
-        started_event.set()
-        await finish_event.wait()
-        self.finished = True
-        return hooks_base.HookResult(allow=True)
-
-    hook_instance = BlockingHook()
-    hr.register_hook(hook_instance)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    wait_event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="traj_1",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            view_file=localharness_pb2.ActionViewFile(file_path="/foo"),
-        )
-    )
-
-    # An event from another subagent that should not be blocked
-    active_event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="traj_2",
-            state=localharness_pb2.StepUpdate.STATE_ACTIVE,
-            text="I am another agent running concurrently",
-        )
-    )
-
-    await harness.send_event(wait_event)
-    await harness.send_event(active_event)
-
-    # Wait for the hook to start
-    await harness.wait_for_event(started_event)
-
-    # The hook should have started, but not finished
-    self.assertTrue(hook_instance.started)
-    self.assertFalse(hook_instance.finished)
-
-    # The reader loop SHOULD NOT be blocked! It should have processed traj_2
-    # and put both events into the step queue.
-    step1 = await harness.conn._step_queue.get()
-    step2 = await harness.conn._step_queue.get()
-
-    self.assertEqual(step1.trajectory_id, "traj_1")
-    self.assertEqual(step2.trajectory_id, "traj_2")
-    self.assertEqual(step2.content, "I am another agent running concurrently")
-
-    # Cleanup: Allow hook to finish
-    finish_event.set()
-
-  async def test_state_transition_clears_handled_requests(self):
-    """Verifies WAITING -> ACTIVE -> WAITING transitions re-trigger handlers."""
-    hr = hook_runner.HookRunner()
-    hook_event = asyncio.Event()
-
-    class CountingHook(hooks_base.PreToolCallDecideHook):
-
-      def __init__(self):
-        self.call_count = 0
-
-      async def run(self, context, data):  # pylint: disable=unused-argument
-        del context, data
-        self.call_count += 1
-        hook_event.set()
-        return hooks_base.HookResult(allow=True)
-
-    hook_instance = CountingHook()
-    hr.register_hook(hook_instance)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    def create_wait_event():
-      return localharness_pb2.OutputEvent(
-          step_update=localharness_pb2.StepUpdate(
-              step_index=1,
-              trajectory_id="test_traj",
-              state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-              tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-              view_file=localharness_pb2.ActionViewFile(file_path="/foo/bar"),
-          )
-      )
-
-    active_event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_ACTIVE,
-        )
-    )
-
-    # 1. First wait
-    await harness.send_event(create_wait_event())
-    await harness.wait_for_event(hook_event)
-    self.assertEqual(hook_instance.call_count, 1)
-
-    # Reset event for next wait
-    hook_event.clear()
-
-    # 2. Transition back to active
-    await harness.send_event(active_event)
-
-    # 3. Second wait on the SAME step
-    await harness.send_event(create_wait_event())
-    await harness.wait_for_event(hook_event)
-
-    # The hook should be called a second time!
-    self.assertEqual(hook_instance.call_count, 2)
-    self.assertEqual(len(harness.ws.sent_messages), 2)
 
   async def test_yielding_wait_state_to_queue(self):
     """Verifies that wait states are correctly yielded to the step queue for the UI to render."""
@@ -1392,52 +953,6 @@ class LocalConnectionTest(unittest.IsolatedAsyncioTestCase):
         )
     )
     await asyncio.wait_for(consumer_task, timeout=1.0)
-
-  async def test_connection_normalizes_file_uri_arguments(self):
-    """Verifies that file:// URIs in tool confirmations are normalized before hooks."""
-    hr = hook_runner.HookRunner()
-    captured_tc = None
-
-    @hooks_base.pre_tool_call_decide
-    async def capturing_hook(data):
-      nonlocal captured_tc
-      captured_tc = data
-      return hooks_base.HookResult(allow=True)
-
-    hr.register_hook(capturing_hook)
-
-    harness = test_utils.TestLocalHarness(
-        test_case=self,
-        process=self.mock_process,
-        tool_runner=self.tool_runner,
-        hook_runner=hr,
-    )
-
-    event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            view_file=localharness_pb2.ActionViewFile(
-                file_path="file:///dev/shm/workspace/foo.py"
-            ),
-        )
-    )
-
-    await harness.send_event(event)
-    await harness.wait_for_response()
-
-    self.assertIsNotNone(captured_tc)
-    self.assertEqual(
-        captured_tc.args.get("file_path"),
-        "/dev/shm/workspace/foo.py",
-    )
-    self.assertNotIn("canonical_path", captured_tc.args)
-    self.assertEqual(
-        captured_tc.canonical_path,
-        "/dev/shm/workspace/foo.py",
-    )
 
 
 class LocalConnectionStepFromDictTest(unittest.TestCase):
@@ -3265,8 +2780,13 @@ class LocalConnectionBuiltinDecideHookTest(unittest.IsolatedAsyncioTestCase):
     self.mock_process = mock.MagicMock()
     self.mock_ws = test_utils.TestWebSocket()
 
-  async def test_decide_hooks_run_for_builtin_tools(self):
-    """Verifies PreToolCallDecideHook runs and can deny builtin tools."""
+  async def test_tool_confirmation_always_accepts(self):
+    """After migration, _handle_tool_confirmation_request always auto-accepts.
+
+    Pre-tool hooks are now dispatched via Go's FirePreToolHook ->
+    CallHookRequest -> HookRouter._handle_pre_tool. The legacy
+    ToolConfirmation path only fires when no hooks are registered.
+    """
 
     class DenyAll(hooks_base.PreToolCallDecideHook):
 
@@ -3300,7 +2820,8 @@ class LocalConnectionBuiltinDecideHookTest(unittest.IsolatedAsyncioTestCase):
     await harness.send_event(event)
 
     sent = await harness.wait_for_response()
-    self.assertFalse(sent["toolConfirmation"]["accepted"])
+    # Now auto-accepts — hooks dispatch happens via HookRouter, not here.
+    self.assertTrue(sent["toolConfirmation"]["accepted"])
 
 
 class LocalConnectionHookAcceptanceTest(unittest.IsolatedAsyncioTestCase):
@@ -4299,7 +3820,10 @@ class LocalConnectionBuiltinToolHooksTest(unittest.IsolatedAsyncioTestCase):
     hr.register_hook(PostHook())
     harness = self._make_harness(hr)
 
-    # Confirmation request — will be denied.
+    # After migration, _handle_tool_confirmation_request always auto-accepts.
+    # Pre-tool deny logic is now in HookRouter._handle_pre_tool.
+    # This test verifies that the confirmation path auto-accepts even with
+    # a deny hook registered.
     await harness.send_event(
         self._make_confirm_event(
             0,
@@ -4308,12 +3832,7 @@ class LocalConnectionBuiltinToolHooksTest(unittest.IsolatedAsyncioTestCase):
         )
     )
     sent_data = await harness.wait_for_response()
-    self.assertFalse(sent_data["toolConfirmation"]["accepted"])
-
-    # Even if the step completes, PostToolCallHook must NOT fire.
-    await harness.send_event(self._make_done_event(0, "traj_deny"))
-    await asyncio.sleep(0.1)
-    self.assertFalse(hook_fired.is_set())
+    self.assertTrue(sent_data["toolConfirmation"]["accepted"])
 
   async def test_no_spurious_hook_for_non_builtin_step(self):
     """Verifies post-tool hooks don't fire for normal model response steps.
@@ -4422,73 +3941,6 @@ class LocalConnectionExceptionSafetyTest(unittest.IsolatedAsyncioTestCase):
     freeform = answers[0]["multipleChoiceAnswer"]["freeformResponse"]
     self.assertIn("SDK error", freeform)
     self.assertIn("Intentional interaction hook crash", freeform)
-
-  async def test_tool_confirmation_crash_sends_rejection(self):
-    """Verifies a crashing pre-tool hook sends accepted=False.
-
-    When the pre_tool_call_decide hook raises, the handler must reject
-    the tool confirmation to prevent the tool from executing in a broken
-    state. The harness transitions the step to STATE_ERROR.
-    """
-    hr = hook_runner.HookRunner()
-
-    @hooks_base.pre_tool_call_decide
-    async def crashing_hook(data):
-      _ = data
-      raise RuntimeError("Intentional pre-tool hook crash")
-
-    hr.register_hook(crashing_hook)
-    harness = self._make_harness(hr)
-
-    event = localharness_pb2.OutputEvent(
-        step_update=localharness_pb2.StepUpdate(
-            step_index=1,
-            trajectory_id="test_traj",
-            state=localharness_pb2.StepUpdate.STATE_WAITING_FOR_USER,
-            tool_confirmation_request=localharness_pb2.ToolConfirmationRequest(),
-            view_file=localharness_pb2.ActionViewFile(file_path="/foo/bar"),
-        )
-    )
-
-    await harness.send_event(event)
-
-    sent_data = await harness.wait_for_response()
-    self.assertIn("toolConfirmation", sent_data)
-    self.assertEqual(sent_data["toolConfirmation"]["trajectoryId"], "test_traj")
-    self.assertFalse(sent_data["toolConfirmation"]["accepted"])
-
-  async def test_tool_call_crash_sends_error_result(self):
-    """Verifies a crashing pre-tool hook sends error in ToolResponse.
-
-    When the pre_tool_call_decide hook raises during a host tool call,
-    the handler must send a ToolResponse with the error so the model
-    sees what went wrong and can adapt.
-    """
-    hr = hook_runner.HookRunner()
-
-    @hooks_base.pre_tool_call_decide
-    async def crashing_hook(data):
-      _ = data
-      raise RuntimeError("Intentional tool execution hook crash")
-
-    hr.register_hook(crashing_hook)
-    harness = self._make_harness(hr)
-
-    event = localharness_pb2.OutputEvent(
-        tool_call=localharness_pb2.ToolCall(
-            id="call_123",
-            name="some_tool",
-            arguments_json="{}",
-        )
-    )
-
-    await harness.send_event(event)
-
-    sent_data = await harness.wait_for_response()
-    self.assertIn("toolResponse", sent_data)
-    resp = sent_data["toolResponse"]
-    self.assertEqual(resp["id"], "call_123")
-    self.assertIn("Intentional tool execution hook crash", resp["errorMessage"])
 
 
 class LocalConnectionSerializationTest(unittest.IsolatedAsyncioTestCase):

@@ -679,5 +679,251 @@ class HookRouterOnToolErrorTest(absltest.TestCase):
     asyncio.run(_test())
 
 
+class HookRouterPreToolTest(absltest.TestCase):
+
+  def test_handle_pre_tool_allow(self):
+
+    async def _test():
+      captured_tool_calls = []
+
+      @hooks.pre_tool_call_decide
+      async def my_hook(data):
+        captured_tool_calls.append(data)
+        return hooks.HookResult(allow=True)
+
+      hook_runner = h_runner.HookRunner(
+          pre_tool_call_decide_hooks=[my_hook],
+      )
+
+      sent_events = []
+
+      async def mock_send(event: localharness_pb2.InputEvent):
+        sent_events.append(event)
+
+      router = HookRouter(hook_runner, mock_send)
+
+      req = localharness_pb2.CallHookRequest(
+          request_id="test_pre_allow",
+          name="PreTool",
+          type=localharness_pb2.LIFECYCLE_HOOK_PRE_TOOL,
+          pre_tool_args=localharness_pb2.PreToolArgs(
+              tool_name="run_command",
+              arguments_json='{"cmd": "ls"}',
+          ),
+      )
+
+      await router.handle(req)
+
+      self.assertLen(sent_events, 1)
+      resp = sent_events[0].call_hook_response
+      self.assertEqual(resp.request_id, "test_pre_allow")
+      self.assertTrue(resp.HasField("pre_tool_result"))
+      self.assertEqual(
+          resp.pre_tool_result.decision,
+          localharness_pb2.PreToolResult.Decision.ALLOW,
+      )
+      self.assertLen(captured_tool_calls, 1)
+      self.assertEqual(captured_tool_calls[0].name, "run_command")
+      self.assertEqual(captured_tool_calls[0].args, {"cmd": "ls"})
+
+    asyncio.run(_test())
+
+  def test_handle_pre_tool_deny(self):
+
+    async def _test():
+
+      @hooks.pre_tool_call_decide
+      async def denying_hook(data):
+        return hooks.HookResult(allow=False, message="blocked by policy")
+
+      hook_runner = h_runner.HookRunner(
+          pre_tool_call_decide_hooks=[denying_hook],
+      )
+
+      sent_events = []
+
+      async def mock_send(event: localharness_pb2.InputEvent):
+        sent_events.append(event)
+
+      router = HookRouter(hook_runner, mock_send)
+
+      req = localharness_pb2.CallHookRequest(
+          request_id="test_pre_deny",
+          name="PreTool",
+          type=localharness_pb2.LIFECYCLE_HOOK_PRE_TOOL,
+          pre_tool_args=localharness_pb2.PreToolArgs(
+              tool_name="run_command",
+              arguments_json='{"cmd": "rm -rf /"}',
+          ),
+      )
+
+      await router.handle(req)
+
+      self.assertLen(sent_events, 1)
+      resp = sent_events[0].call_hook_response
+      self.assertEqual(resp.request_id, "test_pre_deny")
+      self.assertTrue(resp.HasField("pre_tool_result"))
+      self.assertEqual(
+          resp.pre_tool_result.decision,
+          localharness_pb2.PreToolResult.Decision.DENY,
+      )
+      self.assertEqual(resp.pre_tool_result.reason, "blocked by policy")
+
+    asyncio.run(_test())
+
+  def test_handle_pre_tool_no_args(self):
+    """Verifies graceful handling when pre_tool_args is absent."""
+
+    async def _test():
+      captured_tool_calls = []
+
+      @hooks.pre_tool_call_decide
+      async def my_hook(data):
+        captured_tool_calls.append(data)
+        return hooks.HookResult(allow=True)
+
+      hook_runner = h_runner.HookRunner(
+          pre_tool_call_decide_hooks=[my_hook],
+      )
+
+      sent_events = []
+
+      async def mock_send(event: localharness_pb2.InputEvent):
+        sent_events.append(event)
+
+      router = HookRouter(hook_runner, mock_send)
+
+      req = localharness_pb2.CallHookRequest(
+          request_id="test_pre_no_args",
+          name="PreTool",
+          type=localharness_pb2.LIFECYCLE_HOOK_PRE_TOOL,
+      )
+
+      await router.handle(req)
+
+      self.assertLen(sent_events, 1)
+      resp = sent_events[0].call_hook_response
+      self.assertTrue(resp.HasField("pre_tool_result"))
+      self.assertEqual(
+          resp.pre_tool_result.decision,
+          localharness_pb2.PreToolResult.Decision.ALLOW,
+      )
+      self.assertLen(captured_tool_calls, 1)
+      self.assertEqual(captured_tool_calls[0].name, "")
+      self.assertEqual(captured_tool_calls[0].args, {})
+
+    asyncio.run(_test())
+
+  def test_handle_pre_tool_tool_name_translation(self):
+    """Verifies proto tool names are translated to SDK names."""
+
+    async def _test():
+      captured_tool_calls = []
+
+      @hooks.pre_tool_call_decide
+      async def my_hook(data):
+        captured_tool_calls.append(data)
+        return hooks.HookResult(allow=True)
+
+      hook_runner = h_runner.HookRunner(
+          pre_tool_call_decide_hooks=[my_hook],
+      )
+
+      router = HookRouter(hook_runner, lambda _: asyncio.sleep(0))
+
+      # invoke_subagent should be translated to start_subagent.
+      req = localharness_pb2.CallHookRequest(
+          request_id="test_name_translation",
+          name="PreTool",
+          type=localharness_pb2.LIFECYCLE_HOOK_PRE_TOOL,
+          pre_tool_args=localharness_pb2.PreToolArgs(
+              tool_name="invoke_subagent",
+              arguments_json="{}",
+          ),
+      )
+
+      await router.handle(req)
+
+      self.assertLen(captured_tool_calls, 1)
+      self.assertEqual(captured_tool_calls[0].name, "start_subagent")
+
+    asyncio.run(_test())
+
+  def test_handle_pre_tool_normalizes_wire_paths(self):
+    """Verifies file:/// URIs are normalized to clean absolute paths."""
+
+    async def _test():
+      captured_tool_calls = []
+
+      @hooks.pre_tool_call_decide
+      async def my_hook(data):
+        captured_tool_calls.append(data)
+        return hooks.HookResult(allow=True)
+
+      hook_runner = h_runner.HookRunner(
+          pre_tool_call_decide_hooks=[my_hook],
+      )
+
+      router = HookRouter(hook_runner, lambda _: asyncio.sleep(0))
+
+      req = localharness_pb2.CallHookRequest(
+          request_id="test_path_norm",
+          name="PreTool",
+          type=localharness_pb2.LIFECYCLE_HOOK_PRE_TOOL,
+          pre_tool_args=localharness_pb2.PreToolArgs(
+              tool_name="view_file",
+              arguments_json='{"file_path": "file:///home/user/foo.py"}',
+          ),
+      )
+
+      await router.handle(req)
+
+      self.assertLen(captured_tool_calls, 1)
+      self.assertEqual(
+          captured_tool_calls[0].args["file_path"], "/home/user/foo.py"
+      )
+
+    asyncio.run(_test())
+
+  def test_handle_pre_tool_mcp_server_name(self):
+    """Verifies server_name flows from PreToolArgs for MCP tool calls."""
+
+    async def _test():
+      captured_tool_calls = []
+
+      @hooks.pre_tool_call_decide
+      async def my_hook(data):
+        captured_tool_calls.append(data)
+        return hooks.HookResult(allow=True)
+
+      hook_runner = h_runner.HookRunner(
+          pre_tool_call_decide_hooks=[my_hook],
+      )
+
+      router = HookRouter(hook_runner, lambda _: asyncio.sleep(0))
+
+      # server_name is now a top-level field on PreToolArgs,
+      # populated by the harness for MCP tool calls.
+      req = localharness_pb2.CallHookRequest(
+          request_id="test_mcp_server",
+          name="PreTool",
+          type=localharness_pb2.LIFECYCLE_HOOK_PRE_TOOL,
+          pre_tool_args=localharness_pb2.PreToolArgs(
+              tool_name="pirate_multiply",
+              arguments_json='{"a": 5, "b": 7}',
+              server_name="pirate_math",
+          ),
+      )
+
+      await router.handle(req)
+
+      self.assertLen(captured_tool_calls, 1)
+      self.assertEqual(captured_tool_calls[0].name, "pirate_multiply")
+      self.assertEqual(captured_tool_calls[0].server_name, "pirate_math")
+      self.assertEqual(captured_tool_calls[0].args, {"a": 5, "b": 7})
+
+    asyncio.run(_test())
+
+
 if __name__ == "__main__":
   absltest.main()

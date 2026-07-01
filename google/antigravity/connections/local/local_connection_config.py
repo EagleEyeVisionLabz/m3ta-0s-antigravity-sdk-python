@@ -19,6 +19,8 @@ import os
 import pathlib
 import tempfile
 from typing import Any, Callable, Sequence
+import urllib.parse
+import urllib.request
 
 import pydantic
 
@@ -55,6 +57,25 @@ BUILTIN_TOOL_PROTO_FIELDS: dict[types.BuiltinTools, str] = {
 PROTO_FIELD_TO_SDK_NAME: dict[str, str] = {
     v: k.value for k, v in BUILTIN_TOOL_PROTO_FIELDS.items()
 }
+
+
+def normalize_wire_path(path: str) -> str:
+  """Translates wire-format URIs to clean absolute filesystem paths.
+
+  Paths arrive as file:/// or cns:// URIs over the wire protocol.
+  This converts them to platform-native absolute paths that user code expects.
+  """
+  parsed = urllib.parse.urlparse(path)
+  if parsed.scheme == "file":
+    # urlparse("file:///abs/path").path == "/abs/path"
+    # url2pathname converts URL path to platform-native path
+    return urllib.request.url2pathname(parsed.path)
+  if parsed.scheme == "cns":
+    # urlparse("cns://el-d/home/user/...").netloc == "el-d"
+    # urlparse("cns://el-d/home/user/...").path == "/home/user/..."
+    # Convert to the canonical /cns/<cell>/... absolute path format.
+    return "/cns/" + parsed.netloc + parsed.path
+  return path
 
 
 class LocalAgentConfig(connection.AgentConfig):
