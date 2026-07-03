@@ -1143,16 +1143,7 @@ def from_file(
         f"Could not infer a valid MIME type for extension: '{file_path.suffix}'"
     )
 
-  media_cls = _MIME_TO_MEDIA_CLASS.get(mime_guess)
-  if media_cls is None:
-    raise ValueError(
-        f"Unsupported MIME type: '{mime_guess}'. "
-        f"Supported file formats in the SDK are: {sorted(_MIME_TO_MEDIA_CLASS)}"
-    )
-  return cast(
-      Image | Document | Audio | Video,
-      media_cls(data=data, mime_type=mime_guess, description=description),
-  )
+  return from_bytes(data, mime_guess, description)
 
 
 def from_bytes(
