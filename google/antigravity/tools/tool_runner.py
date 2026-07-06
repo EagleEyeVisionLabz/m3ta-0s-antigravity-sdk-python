@@ -31,6 +31,7 @@ injectable parameters so the model never sees them.
 import asyncio
 import functools
 import inspect
+import types as std_types
 import typing
 from typing import Any, Callable
 
@@ -66,7 +67,8 @@ def _find_context_param(fn: Callable[..., Any]) -> str | None:
     if ann is tool_context_module.ToolContext:
       return name
     # Handle Optional[ToolContext] / ToolContext | None forms.
-    if typing.get_origin(ann) is typing.Union:
+    origin = typing.get_origin(ann)
+    if origin is typing.Union or origin is std_types.UnionType:
       if tool_context_module.ToolContext in typing.get_args(ann):
         return name
   return None
