@@ -82,7 +82,7 @@ class HookRouter:
       event_sender: Callable[
           [localharness_pb2.InputEvent], Coroutine[Any, Any, None]
       ],
-      result_extractor: Callable[[Any], Any] | None = None,
+      result_extractor: Callable[[str, str], Any] | None = None,
   ):
     self._hook_runner = hook_runner
     self._send = event_sender
@@ -232,20 +232,13 @@ class HookRouter:
     if req.HasField("post_tool_args"):
       pta = req.post_tool_args
       tool_name = PROTO_FIELD_TO_SDK_NAME.get(pta.tool_name, pta.tool_name)
+      server_name = pta.server_name or None
       result_val = pta.result if not pta.error else None
       error_str = pta.error
-      if pta.HasField("step_update"):
-        su = pta.step_update
-        if su.HasField("mcp_tool"):
-          server_name = su.mcp_tool.server_name or None
-          if su.mcp_tool.tool_name:
-            tool_name = PROTO_FIELD_TO_SDK_NAME.get(
-                su.mcp_tool.tool_name, su.mcp_tool.tool_name
-            )
-        if self._extract_result:
-          extracted = self._extract_result(su)
-          if extracted is not None:
-            result_val = extracted
+      if self._extract_result and not pta.error and pta.result:
+        extracted = self._extract_result(tool_name, pta.result)
+        if extracted is not None:
+          result_val = extracted
     tool_result = types.ToolResult(
         name=tool_name,
         server_name=server_name,

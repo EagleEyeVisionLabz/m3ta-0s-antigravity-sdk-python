@@ -17,7 +17,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable, Coroutine, cast
 
 from google.protobuf import json_format
 import pydantic
@@ -128,76 +128,37 @@ class _StepTracker:
     return True
 
 
-def _extract_tool_result(
-    step_update: localharness_pb2.StepUpdate,
-) -> "local_types.ToolOutput | None":
-  """Extracts a structured tool result from per-action fields."""
-  _run_command = BUILTIN_TOOL_PROTO_FIELDS[types.BuiltinTools.RUN_COMMAND]
-  _list_dir = BUILTIN_TOOL_PROTO_FIELDS[types.BuiltinTools.LIST_DIR]
-  _find_file = BUILTIN_TOOL_PROTO_FIELDS[types.BuiltinTools.FIND_FILE]
-  _search_dir = BUILTIN_TOOL_PROTO_FIELDS[types.BuiltinTools.SEARCH_DIR]
-  _edit_file = BUILTIN_TOOL_PROTO_FIELDS[types.BuiltinTools.EDIT_FILE]
-  _gen_image = BUILTIN_TOOL_PROTO_FIELDS[types.BuiltinTools.GENERATE_IMAGE]
-  _search_web = BUILTIN_TOOL_PROTO_FIELDS[types.BuiltinTools.SEARCH_WEB]
-  _read_url_content = BUILTIN_TOOL_PROTO_FIELDS[
-      types.BuiltinTools.READ_URL_CONTENT
-  ]
+_TOOL_RESULT_MODELS: dict[str, Any] = {
+    types.BuiltinTools.RUN_COMMAND: local_types.RunCommandResult,
+    types.BuiltinTools.LIST_DIR: local_types.ListDirectoryResult,
+    types.BuiltinTools.FIND_FILE: local_types.FindFileResult,
+    types.BuiltinTools.SEARCH_DIR: local_types.SearchDirectoryResult,
+    types.BuiltinTools.EDIT_FILE: local_types.EditFileResult,
+    types.BuiltinTools.GENERATE_IMAGE: local_types.GenerateImageResult,
+    types.BuiltinTools.SEARCH_WEB: local_types.SearchWebResult,
+    types.BuiltinTools.READ_URL_CONTENT: local_types.ReadUrlContentResult,
+}
 
-  # run_command -> raw stdout/stderr
-  if step_update.HasField(_run_command):
-    rc = step_update.run_command
-    if rc.combined_output:
-      return local_types.RunCommandResult(output=rc.combined_output)
-  # list_directory -> structured entry list
-  elif step_update.HasField(_list_dir):
-    ld = step_update.list_directory
-    if ld.results:
-      entries = [
-          local_types.ListDirectoryEntry(
-              name=r.name,
-              is_directory=r.is_directory,
-              file_size=r.file_size,
-          )
-          for r in ld.results
-      ]
-      return local_types.ListDirectoryResult(entries=entries)
-  # find_file -> raw find output
-  elif step_update.HasField(_find_file):
-    ff = step_update.find_file
-    if ff.output:
-      return local_types.FindFileResult(output=ff.output)
-  # search_directory -> result count
-  elif step_update.HasField(_search_dir):
-    sd = step_update.search_directory
-    if sd.num_results:
-      return local_types.SearchDirectoryResult(num_results=sd.num_results)
-  # edit_file -> diff summary from step text
-  elif step_update.HasField(_edit_file):
-    ef = step_update.edit_file
-    if ef.diff_block:
-      return local_types.EditFileResult(summary=step_update.text)
-  # generate_image -> image filename
-  elif step_update.HasField(_gen_image):
-    gi = step_update.generate_image
-    if gi.image_name:
-      return local_types.GenerateImageResult(
-          image_name=gi.image_name, aspect_ratio=gi.aspect_ratio
-      )
-  # search_web -> summary text
-  elif step_update.HasField(_search_web):
-    sw = step_update.search_web
-    if sw.summary:
-      return local_types.SearchWebResult(summary=sw.summary)
-  # read_url_content -> title, summary, content_path
-  elif step_update.HasField(_read_url_content):
-    ruc = step_update.read_url_content
-    if ruc.summary or ruc.title or ruc.content_path:
-      return local_types.ReadUrlContentResult(
-          title=ruc.title,
-          summary=ruc.summary,
-          content_path=ruc.content_path,
-      )
-  return None
+
+def _extract_tool_result(
+    tool_name: str, result_str: str
+) -> "local_types.ToolOutput | None":
+  """Extracts a structured tool result from canonical JSON string or fallback text."""
+  if not result_str or tool_name not in _TOOL_RESULT_MODELS:
+    return None
+  try:
+    res = _TOOL_RESULT_MODELS[tool_name].model_validate_json(result_str)
+    return cast("local_types.ToolOutput", res)
+  except (
+      ValueError,
+      TypeError,
+      pydantic.ValidationError,
+  ):
+    if tool_name == types.BuiltinTools.EDIT_FILE:
+      return local_types.EditFileResult(summary=result_str)
+    if tool_name == types.BuiltinTools.FIND_FILE:
+      return local_types.FindFileResult(output=result_str)
+    return None
 
 
 def _make_step_id(trajectory_id: str, step_index: int) -> str:
