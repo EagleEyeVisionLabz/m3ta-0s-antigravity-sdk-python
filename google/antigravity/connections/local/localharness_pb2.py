@@ -310,8 +310,9 @@ DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(
     b' \x01(\tJ\x04\x08\x03\x10\x04R\x0bstep_update"F\n\x0bPreTurnArgs\x12\x37\n\nuser_input\x18\x01'
     b' \x01(\x0b\x32#.antigravity.localharness.UserInput"%\n\x0cPostTurnArgs\x12\x15\n\rresponse_text\x18\x01'
     b' \x01(\t"\r\n\x0b\x45mptyResult"1\n\x11OnToolErrorResult\x12\x1c\n\x14\x63ustom_error_message\x18\x01'
-    b' \x01(\t"\x9e\x01\n\rPreToolResult\x12\x42\n\x08\x64\x65\x63ision\x18\x01'
+    b' \x01(\t"\xbf\x01\n\rPreToolResult\x12\x42\n\x08\x64\x65\x63ision\x18\x01'
     b' \x01(\x0e\x32\x30.antigravity.localharness.PreToolResult.Decision\x12\x0e\n\x06reason\x18\x02'
+    b' \x01(\t\x12\x1f\n\x17modified_arguments_json\x18\x03'
     b' \x01(\t"9\n\x08\x44\x65\x63ision\x12\x18\n\x14\x44\x45\x43ISION_UNSPECIFIED\x10\x00\x12\t\n\x05\x41LLOW\x10\x01\x12\x08\n\x04\x44\x45NY\x10\x02"\x9e\x01\n\rPreTurnResult\x12\x42\n\x08\x64\x65\x63ision\x18\x01'
     b' \x01(\x0e\x32\x30.antigravity.localharness.PreTurnResult.Decision\x12\x0e\n\x06reason\x18\x02'
     b' \x01(\t"9\n\x08\x44\x65\x63ision\x12\x18\n\x14\x44\x45\x43ISION_UNSPECIFIED\x10\x00\x12\t\n\x05\x41LLOW\x10\x01\x12\x08\n\x04\x44\x45NY\x10\x02"\xf2\x01\n\x0b\x43ustomAgent\x12\x0c\n\x04name\x18\x01'
@@ -343,12 +344,12 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_MCPSTDIOTRANSPORT_ENVENTRY']._serialized_options = b'8\001'
   _globals['_MCPHTTPTRANSPORT_HEADERSENTRY']._loaded_options = None
   _globals['_MCPHTTPTRANSPORT_HEADERSENTRY']._serialized_options = b'8\001'
-  _globals['_LIFECYCLEHOOK']._serialized_start = 14482
-  _globals['_LIFECYCLEHOOK']._serialized_end = 14753
-  _globals['_MODELTYPE']._serialized_start = 14755
-  _globals['_MODELTYPE']._serialized_end = 14837
-  _globals['_NULLVALUE']._serialized_start = 14839
-  _globals['_NULLVALUE']._serialized_end = 14866
+  _globals['_LIFECYCLEHOOK']._serialized_start = 14515
+  _globals['_LIFECYCLEHOOK']._serialized_end = 14786
+  _globals['_MODELTYPE']._serialized_start = 14788
+  _globals['_MODELTYPE']._serialized_end = 14870
+  _globals['_NULLVALUE']._serialized_start = 14872
+  _globals['_NULLVALUE']._serialized_end = 14899
   _globals['_INPUTCONFIG']._serialized_start = 49
   _globals['_INPUTCONFIG']._serialized_end = 195
   _globals['_INITIALIZECONVERSATIONEVENT']._serialized_start = 197
@@ -550,19 +551,19 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_ONTOOLERRORRESULT']._serialized_start = 13562
   _globals['_ONTOOLERRORRESULT']._serialized_end = 13611
   _globals['_PRETOOLRESULT']._serialized_start = 13614
-  _globals['_PRETOOLRESULT']._serialized_end = 13772
-  _globals['_PRETOOLRESULT_DECISION']._serialized_start = 13715
-  _globals['_PRETOOLRESULT_DECISION']._serialized_end = 13772
-  _globals['_PRETURNRESULT']._serialized_start = 13775
-  _globals['_PRETURNRESULT']._serialized_end = 13933
-  _globals['_PRETURNRESULT_DECISION']._serialized_start = 13715
-  _globals['_PRETURNRESULT_DECISION']._serialized_end = 13772
-  _globals['_CUSTOMAGENT']._serialized_start = 13936
-  _globals['_CUSTOMAGENT']._serialized_end = 14178
-  _globals['_TOOLOUTPUTTRUNCATION']._serialized_start = 14181
-  _globals['_TOOLOUTPUTTRUNCATION']._serialized_end = 14479
-  _globals['_TOOLOUTPUTTRUNCATION_TRUNCATESTRATEGY']._serialized_start = 14369
-  _globals['_TOOLOUTPUTTRUNCATION_TRUNCATESTRATEGY']._serialized_end = 14407
-  _globals['_TOOLOUTPUTTRUNCATION_ERRORSTRATEGY']._serialized_start = 14409
-  _globals['_TOOLOUTPUTTRUNCATION_ERRORSTRATEGY']._serialized_end = 14467
+  _globals['_PRETOOLRESULT']._serialized_end = 13805
+  _globals['_PRETOOLRESULT_DECISION']._serialized_start = 13748
+  _globals['_PRETOOLRESULT_DECISION']._serialized_end = 13805
+  _globals['_PRETURNRESULT']._serialized_start = 13808
+  _globals['_PRETURNRESULT']._serialized_end = 13966
+  _globals['_PRETURNRESULT_DECISION']._serialized_start = 13748
+  _globals['_PRETURNRESULT_DECISION']._serialized_end = 13805
+  _globals['_CUSTOMAGENT']._serialized_start = 13969
+  _globals['_CUSTOMAGENT']._serialized_end = 14211
+  _globals['_TOOLOUTPUTTRUNCATION']._serialized_start = 14214
+  _globals['_TOOLOUTPUTTRUNCATION']._serialized_end = 14512
+  _globals['_TOOLOUTPUTTRUNCATION_TRUNCATESTRATEGY']._serialized_start = 14402
+  _globals['_TOOLOUTPUTTRUNCATION_TRUNCATESTRATEGY']._serialized_end = 14440
+  _globals['_TOOLOUTPUTTRUNCATION_ERRORSTRATEGY']._serialized_start = 14442
+  _globals['_TOOLOUTPUTTRUNCATION_ERRORSTRATEGY']._serialized_end = 14500
 # @@protoc_insertion_point(module_scope)
