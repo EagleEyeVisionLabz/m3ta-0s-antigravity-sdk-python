@@ -99,9 +99,17 @@ def _make_public_callable(
   new_params = [p for n, p in sig.parameters.items() if n != context_param]
   public_sig = sig.replace(parameters=new_params)
 
-  @functools.wraps(fn)
-  def _proxy(**kwargs):
-    return fn(**kwargs)
+  if _is_async(fn):
+
+    @functools.wraps(fn)
+    async def _proxy(**kwargs):
+      return await fn(**kwargs)
+
+  else:
+
+    @functools.wraps(fn)
+    def _proxy(**kwargs):
+      return fn(**kwargs)
 
   setattr(_proxy, "__signature__", public_sig)
   return _proxy

@@ -798,6 +798,17 @@ class SchemaGenerationTest(absltest.TestCase):
     self.assertIn("query", sig.parameters)
     self.assertNotIn("ctx", sig.parameters)
 
+  def test_public_callable_preserves_async_ness(self):
+    from google.antigravity.tools import tool_context  # pylint: disable=g-import-not-at-top
+
+    async def _schema_tool(query: str, ctx: tool_context.ToolContext) -> str:
+      del ctx
+      return query
+
+    runner = tool_runner.ToolRunner([_schema_tool])
+    public = runner.get_public_callable("_schema_tool")
+    self.assertTrue(tool_runner._is_async(public))
+
 
 if __name__ == "__main__":
   absltest.main()
